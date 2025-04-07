@@ -15,6 +15,7 @@ typedef struct Treasure{
     int value;
 }Treasure;
 
+
 int options(char *s){
     if(!strcmp(s, "add"))
         return 10;
