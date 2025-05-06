@@ -32,9 +32,56 @@ int options(char *s){
         return 13;
     else if(!strcmp(s, "remove_hunt"))
         return 14;
-    else
+    else if(!strcmp(s, "list_all"))
         return 15;
+    else
+        return 16;
 }
+
+void list_all_hunts() {
+    char cwd[1024];
+    getcwd(cwd, sizeof(cwd));
+
+    DIR *dir = opendir(cwd);
+    if (!dir) {
+        perror("Cannot open current directory");
+        return;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        char treasures_path[1294];
+        snprintf(treasures_path, sizeof(treasures_path), "%s/%s/treasures.txt", cwd, entry->d_name);
+
+        if (access(treasures_path, F_OK) != 0)
+            continue;
+
+        char command[1400];
+        snprintf(command, sizeof(command), "wc -l < \"%s\"", treasures_path);
+
+        FILE *fp = popen(command, "r");
+        if (fp == NULL) {
+            perror("Failed to run wc");
+            continue;
+        }
+
+        int line_count = 0;
+        fscanf(fp, "%d", &line_count);
+        pclose(fp);
+
+        int treasure_count = line_count / 6;
+        if(treasure_count != 1)
+            printf("Hunt: %s, %d treasures\n", entry->d_name, treasure_count);
+        else
+            printf("Hunt: %s, %d treasure\n", entry->d_name, treasure_count);
+    }
+
+    closedir(dir);
+}
+
 
 void add_hunt(char *hunt_id, Treasure treasure){
     char cwd[1024];
@@ -179,7 +226,11 @@ void list_treasures(char *filepath) {
             ssize_t bytes_read;
             while ((bytes_read = read(file, buf, sizeof(buf) - 1)) > 0) {
                 buf[bytes_read] = '\0';
-                printf("%s", buf);
+                char *line = strtok(buf, "\n");
+                while(line != NULL){
+                    printf("%s\n", line);
+                    for(int i = 0; i < 6; i++)  line = strtok(NULL, "\n");
+                }
             }
             if (bytes_read < 0) {
                 perror("Error reading file");
@@ -330,6 +381,11 @@ void remove_hunt(char *hunt_id){
 }
 
 int main(int argc, char **argv){
+
+    if(argc < 2){
+        perror("Too few arguments");
+        exit(1);
+    }
     
     switch(options(argv[1])){
         case 10:{
@@ -414,6 +470,10 @@ int main(int argc, char **argv){
                 exit(1);
             }
             remove_hunt(argv[2]);
+            break;
+        }
+        case 15:{
+            list_all_hunts();
             break;
         }
         default:{
