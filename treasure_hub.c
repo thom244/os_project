@@ -20,11 +20,33 @@ char hunt_id[100];
 char treasure_id[100];
 
 void list_hunts_handler(int sig){
+    int pfd[2];
+
+    if(pipe(pfd) < 0){
+        perror("Error creating the pipe");
+        exit(1);
+    }
+    
     pid_t pid = fork();
     if (pid == 0) {
+        close(pfd[0]);
+        dup2(pfd[1], STDOUT_FILENO);
+        close(pfd[1]);
         execl("./hunts", "hunts", "list_all", NULL);
         perror("execl failed");
         exit(1);
+    }
+    else if(pid > 0){
+        close(pfd[1]);
+        char buf[4096];
+        int n;
+
+        while((n = read(pfd[0], buf, sizeof(buf) - 1)) > 0){
+            buf[n] = '\0';
+            printf("Child output:\n%s", buf);
+        }
+
+        close(pfd[0]);
     }
 }
 
@@ -41,6 +63,13 @@ void sigchld_handler(int sig) {
 }
 
 void list_treasures_handler(int sig){
+    int pfd[2];
+
+    if(pipe(pfd) < 0){
+        perror("Error creating the pipe");
+        exit(1);
+    }
+
     char buf[100];
     int fd = open("tmp_args.txt", O_RDONLY);
     if (fd < 0) {
@@ -57,15 +86,38 @@ void list_treasures_handler(int sig){
     buf[n] = '\0';
     pid_t pid = fork();
     if (pid == 0) {
+        close(pfd[0]);
+        dup2(pfd[1], STDOUT_FILENO);
+        close(pfd[1]);
+
         execl("./hunts", "hunts", "list", buf, NULL);
         perror("execl failed");
         exit(1);
+    }
+    else if(pid > 0){
+        close(pfd[1]);
+        char buf[4096];
+        int n;
+
+        while((n = read(pfd[0], buf, sizeof(buf) - 1)) > 0){
+            buf[n] = '\0';
+            printf("Child output:\n%s", buf);
+        }
+
+        close(pfd[0]);
     }
 }
 
 void view_handler(int sig){
     char buf[200];
     char local_hunt_id[100], local_treasure_id[100];
+
+    int pfd[2];
+
+    if(pipe(pfd) < 0){
+        perror("Error creating the pipe");
+        exit(1);
+    }
 
     int fd = open("tmp_args.txt", O_RDONLY);
     if (fd < 0) {
@@ -83,9 +135,25 @@ void view_handler(int sig){
     sscanf(buf, "%s %s", local_hunt_id, local_treasure_id);
     pid_t pid = fork();
     if (pid == 0) {
+        close(pfd[0]);
+        dup2(pfd[1], STDOUT_FILENO);
+        close(pfd[1]);
+
         execl("./hunts", "hunts", "view", local_hunt_id, local_treasure_id, NULL);
         perror("execl failed");
         exit(1);
+    }
+    else if(pid > 0){
+        close(pfd[1]);
+        char buf[4096];
+        int n;
+
+        while((n = read(pfd[0], buf, sizeof(buf) - 1)) > 0){
+            buf[n] = '\0';
+            printf("Child output:\n%s", buf);
+        }
+
+        close(pfd[0]);
     }
 }
 
@@ -139,9 +207,9 @@ int main(int argc, char **argv){
     sa_chld.sa_handler = sigchld_handler;
     sigaction(SIGCHLD, &sa_chld, NULL);
 
-    scanf("%s", s);
+    printf("If you want to start the monitor, type 'start_monitor'. If you need help, type 'help'\n");
     while(1){
-        fflush(stdout);
+        scanf("%s", s);
         if(strcmp(s, "start_monitor") == 0){
             if (monitor_pid != 0) {
                 printf("Monitor is already running\n");
@@ -167,6 +235,13 @@ int main(int argc, char **argv){
                 printf("Error: the monitor is still running\n");
             else
                 exit(0);
+        }
+        else if(!strcmp(s, "help")){
+            printf("Type \'start_monitor\' to start the monitor process.\nType \'list_hunts\' to list all the hunts.\n"
+                "Use \'list_treasures <Hunt id>\' to view all the treasures from a specific hunt.\n"
+                "Type \'view <Hunt id> <Treasure id>\' to find out more about each treasure.\n"
+                "Use \'close_monitor\' to close the monitor.\nIf you want to exit the program, type \'exit\', "
+                "but only if the monitor is not running\n");
         }
         else if (monitor_pid == 0) {
             printf("The monitor is not started\n");
@@ -206,6 +281,6 @@ int main(int argc, char **argv){
         else {
             printf("Unknown command\n");
         }
-        scanf("%s", s);
     }
+    return 0;
 }
