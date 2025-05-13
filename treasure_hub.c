@@ -13,6 +13,7 @@
 #define SIGLSTT (SIGRTMIN + 2)
 #define SIGVWT (SIGRTMIN + 3)
 #define SIGSTP (SIGRTMIN + 4)
+#define SIGCAL (SIGRTMIN + 5)
 
 pid_t child_pid;
 int monitor_pid;
@@ -26,7 +27,7 @@ void list_hunts_handler(int sig){
         perror("Error creating the pipe");
         exit(1);
     }
-    
+
     pid_t pid = fork();
     if (pid == 0) {
         close(pfd[0]);
@@ -108,6 +109,52 @@ void list_treasures_handler(int sig){
     }
 }
 
+void calculate_score_handler(int sig){
+    int pfd[2];
+
+    if(pipe(pfd) < 0){
+        perror("Error creating the pipe");
+        exit(1);
+    }
+
+    char buf[100];
+    int fd = open("tmp_args.txt", O_RDONLY);
+    if (fd < 0) {
+        perror("Error opening in child");
+        exit(1);
+    }
+    int n = read(fd, buf, sizeof(buf)-1);
+
+    close(fd);
+    if (n < 0) {
+        perror("Error reading in child");
+        exit(1);
+    }
+    buf[n] = '\0';
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(pfd[0]);
+        dup2(pfd[1], STDOUT_FILENO);
+        close(pfd[1]);
+
+        execl("./cal", "cal", buf, NULL);
+        perror("execl failed");
+        exit(1);
+    }
+    else if(pid > 0){
+        close(pfd[1]);
+        char buf[4096];
+        int n;
+
+        while((n = read(pfd[0], buf, sizeof(buf) - 1)) > 0){
+            buf[n] = '\0';
+            printf("Child output:\n%s", buf);
+        }
+
+        close(pfd[0]);
+    }
+}
+
 void view_handler(int sig){
     char buf[200];
     char local_hunt_id[100], local_treasure_id[100];
@@ -164,17 +211,19 @@ void stop_handler(int sig) {
 
 
 void child(){
-    struct sigaction list_treasures, list_hunts, view_treasures, stop_monitor;
+    struct sigaction list_treasures, list_hunts, view_treasures, stop_monitor, cal_score;
 
     memset(&list_treasures, 0x00, sizeof(struct sigaction));
     memset(&list_hunts, 0x00, sizeof(struct sigaction));
     memset(&view_treasures, 0x00, sizeof(struct sigaction));
     memset(&stop_monitor, 0x00, sizeof(struct sigaction));
+    memset(&cal_score, 0x00, sizeof(struct sigaction));
 
     list_hunts.sa_handler = list_hunts_handler;
     list_treasures.sa_handler = list_treasures_handler;
     view_treasures.sa_handler = view_handler;
     stop_monitor.sa_handler = stop_handler;
+    cal_score.sa_handler = calculate_score_handler;
 
 
     if (sigaction(SIGLSTH, &list_hunts, NULL) < 0) {
@@ -191,6 +240,10 @@ void child(){
     }
     if (sigaction(SIGSTP, &stop_monitor, NULL) < 0) {
         perror("sigaction SIGSTP");
+        exit(-1);	     
+    }
+    if (sigaction(SIGCAL, &cal_score, NULL) < 0) {
+        perror("sigaction SIGCAL");
         exit(-1);	     
     }
     printf("Monitor started with PID %d\n", getpid());
@@ -240,7 +293,9 @@ int main(int argc, char **argv){
             printf("Type \'start_monitor\' to start the monitor process.\nType \'list_hunts\' to list all the hunts.\n"
                 "Use \'list_treasures <Hunt id>\' to view all the treasures from a specific hunt.\n"
                 "Type \'view <Hunt id> <Treasure id>\' to find out more about each treasure.\n"
-                "Use \'close_monitor\' to close the monitor.\nIf you want to exit the program, type \'exit\', "
+                "Use \'close_monitor\' to close the monitor.\n"
+                "Use \'calculate_score <Hunt id>\' to calculate score for all the users in that hunt\n"
+                "If you want to exit the program, type \'exit\', "
                 "but only if the monitor is not running\n");
         }
         else if (monitor_pid == 0) {
@@ -277,6 +332,21 @@ int main(int argc, char **argv){
             waitpid(monitor_pid, &status, 0);
             printf("Monitor exited with status %d\n", WEXITSTATUS(status));
             monitor_pid = 0;
+        }
+        else if(!strcmp(s, "calculate_score")){
+            if (system("gcc -Wall -o cal score_calculator.c") != 0) {
+                fprintf(stderr, "Compilation of score_calculator.c failed.\n");
+                exit(1);
+            } 
+            scanf("%s", hunt_id);
+            int fd = open("tmp_args.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd < 0) {
+                perror("open tmp_args.txt");
+                exit(1);
+            }
+            write(fd, hunt_id, strlen(hunt_id));
+            close(fd);
+            kill(monitor_pid, SIGCAL);   
         }
         else {
             printf("Unknown command\n");

@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <time.h>
 
 typedef struct Treasure{
     char *treasure_id;
@@ -202,6 +203,31 @@ void list_treasures(char *filepath) {
     getcwd(cwd, sizeof(cwd));
     strcat(cwd, "/");
     strcat(cwd, filepath);
+
+    struct stat st;
+    if (stat(cwd, &st) == -1) {
+        perror("stat failed");
+        return;
+    }
+
+    // Print hunt name
+    write(STDOUT_FILENO, "Hunt: ", 6);
+    write(STDOUT_FILENO, filepath, strlen(filepath));
+    write(STDOUT_FILENO, "\n", 1);
+
+    // Print file size
+    char size_buf[64];
+    snprintf(size_buf, sizeof(size_buf), "Size: %ld bytes\n", st.st_size);
+    write(STDOUT_FILENO, size_buf, strlen(size_buf));
+
+    // Print last modification time
+    char time_buf[128];
+    struct tm *mod_time = localtime(&st.st_mtime);
+    strftime(time_buf, sizeof(time_buf), "Last modified: %Y-%m-%d %H:%M:%S\n", mod_time);
+    write(STDOUT_FILENO, time_buf, strlen(time_buf));
+
+    // List treasures
+    write(STDOUT_FILENO, "\nTreasures:\n", 12);
 
     struct dirent *entry;
     DIR *dir = opendir(cwd);
