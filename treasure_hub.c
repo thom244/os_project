@@ -19,6 +19,7 @@ pid_t child_pid;
 int monitor_pid;
 char hunt_id[100];
 char treasure_id[100];
+int monitor_pipe[2];
 
 void list_hunts_handler(int sig){
     int pfd[2];
@@ -44,7 +45,7 @@ void list_hunts_handler(int sig){
 
         while((n = read(pfd[0], buf, sizeof(buf) - 1)) > 0){
             buf[n] = '\0';
-            printf("Child output:\n%s", buf);
+            printf("%s", buf);
         }
 
         close(pfd[0]);
@@ -102,7 +103,7 @@ void list_treasures_handler(int sig){
 
         while((n = read(pfd[0], buf, sizeof(buf) - 1)) > 0){
             buf[n] = '\0';
-            printf("Child output:\n%s", buf);
+            printf("%s", buf);
         }
 
         close(pfd[0]);
@@ -148,7 +149,7 @@ void calculate_score_handler(int sig){
 
         while((n = read(pfd[0], buf, sizeof(buf) - 1)) > 0){
             buf[n] = '\0';
-            printf("Child output:\n%s", buf);
+            printf("%s", buf);
         }
 
         close(pfd[0]);
@@ -197,7 +198,7 @@ void view_handler(int sig){
 
         while((n = read(pfd[0], buf, sizeof(buf) - 1)) > 0){
             buf[n] = '\0';
-            printf("Child output:\n%s", buf);
+            printf("%s", buf);
         }
 
         close(pfd[0]);
@@ -206,6 +207,7 @@ void view_handler(int sig){
 
 void stop_handler(int sig) {
     printf("Received stop signal. Exiting monitor...\n");
+    usleep(100000000);
     exit(0);
 }
 
@@ -255,6 +257,11 @@ void child(){
 int main(int argc, char **argv){
     char s[100];
 
+    if (pipe(monitor_pipe) < 0) {
+        perror("Error creating monitor pipe");
+        exit(1);
+    }
+
     struct sigaction sa_chld;
     memset(&sa_chld, 0, sizeof(sa_chld));
     sa_chld.sa_handler = sigchld_handler;
@@ -277,10 +284,26 @@ int main(int argc, char **argv){
                 exit(1);
             }
             else if(child_pid == 0){
+                dup2(monitor_pipe[1], STDOUT_FILENO);
+                close(monitor_pipe[0]);
+                close(monitor_pipe[1]);
                 child();
             }
             else{
                 monitor_pid = child_pid;
+                pid_t reader_pid = fork();
+                if (reader_pid == 0) {
+                    char buf[4096];
+                    int n;
+                    while ((n = read(monitor_pipe[0], buf, sizeof(buf) - 1)) > 0) {
+                        buf[n] = '\0';
+                        printf("%s", buf);
+                    }
+                    close(monitor_pipe[0]);
+                    exit(0);
+                }
+
+                close(monitor_pipe[0]);
             }
         }
         else if(!strcmp(s, "exit")){

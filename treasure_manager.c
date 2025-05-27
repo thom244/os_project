@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <time.h>
+#include <stdarg.h>
 
 typedef struct Treasure{
     char *treasure_id;
@@ -210,23 +211,19 @@ void list_treasures(char *filepath) {
         return;
     }
 
-    // Print hunt name
     write(STDOUT_FILENO, "Hunt: ", 6);
     write(STDOUT_FILENO, filepath, strlen(filepath));
     write(STDOUT_FILENO, "\n", 1);
 
-    // Print file size
     char size_buf[64];
     snprintf(size_buf, sizeof(size_buf), "Size: %ld bytes\n", st.st_size);
     write(STDOUT_FILENO, size_buf, strlen(size_buf));
 
-    // Print last modification time
     char time_buf[128];
     struct tm *mod_time = localtime(&st.st_mtime);
     strftime(time_buf, sizeof(time_buf), "Last modified: %Y-%m-%d %H:%M:%S\n", mod_time);
     write(STDOUT_FILENO, time_buf, strlen(time_buf));
 
-    // List treasures
     write(STDOUT_FILENO, "\nTreasures:\n", 12);
 
     struct dirent *entry;
@@ -321,6 +318,30 @@ void view_treasure(char* hunt_id, char* treasure_id){
     close(file);
 }
 
+void log_command(char *hunt_id, char *msg){
+    char log_filename[256];
+    snprintf(log_filename, sizeof(log_filename), "%s/logged_hunt-%s.txt", hunt_id, hunt_id);
+
+    int fd = open(log_filename, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if(fd < 0){
+        perror("Cannot access the log file");
+        exit(1);
+    }
+    write(fd, msg, strlen(msg));
+    write(fd, "\n", 1);
+
+    close(fd);
+
+    char symlink_name[256];
+    snprintf(symlink_name, sizeof(symlink_name), "logged_hunt-%s.txt", hunt_id);
+
+    if (access(symlink_name, F_OK) != 0) {
+        if (symlink(log_filename, symlink_name) != 0) {
+            perror("symlink failed");
+        }
+    }
+}
+
 void read_treasures(char *filename, char *hunt_id) {
     int file = open(filename, O_RDONLY);
     if (file < 0) {
@@ -363,6 +384,9 @@ void read_treasures(char *filename, char *hunt_id) {
             add_hunt(hunt_id, treasure);
 
             line = strtok(NULL, "\n");
+            char msg[1024];
+            snprintf(msg, sizeof(msg), "Added hunt %s in %s by user %s", treasure.treasure_id, hunt_id, treasure.username);
+            log_command(hunt_id, msg);
         }
     }
 
@@ -404,6 +428,10 @@ void remove_hunt(char *hunt_id){
     if((i = rmdir(cwd)) != 0){
         printf("Cannot remove the %s directory\n", cwd);
     }
+
+    char symlink_name[256];
+    snprintf(symlink_name, sizeof(symlink_name), "logged_hunt-%s.txt", hunt_id);
+    unlink(symlink_name);
 }
 
 int main(int argc, char **argv){
@@ -463,8 +491,10 @@ int main(int argc, char **argv){
             treasure.value = atoi(buffer);
         
             add_hunt(argv[2], treasure);
+            char msg[1024];
+            snprintf(msg, sizeof(msg), "Added hunt %s in %s by user %s", treasure.treasure_id, argv[2], treasure.username);
+            log_command(argv[2], msg);
             break;
-            
         }
         case 11:{
             if(argc != 3){
@@ -472,6 +502,9 @@ int main(int argc, char **argv){
                 exit(1);
             }
             list_treasures(argv[2]);
+            char msg[1024];
+            snprintf(msg, sizeof(msg), "Listed hunt %s", argv[2]);
+            log_command(argv[2], msg);
             break;
         }
         case 12:{
@@ -480,6 +513,9 @@ int main(int argc, char **argv){
                 exit(1);
             }
             view_treasure(argv[2], argv[3]);
+            char msg[1024];
+            snprintf(msg, sizeof(msg), "Viewed treasure %s from hunt %s", argv[3], argv[2]);
+            log_command(argv[2], msg);
             break;
         }
         case 13:{
@@ -488,6 +524,9 @@ int main(int argc, char **argv){
                 exit(1);
             }
             remove_treasure(argv[2], argv[3]);
+            char msg[1024];
+            snprintf(msg, sizeof(msg), "Removed treasure %s from hunt %s", argv[3], argv[2]);
+            //log_command(argv[2], msg);
             break;
         }
         case 14:{
